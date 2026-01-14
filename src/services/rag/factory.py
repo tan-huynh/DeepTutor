@@ -10,6 +10,7 @@ from typing import Callable, Dict, List, Optional, Union
 from .pipeline import RAGPipeline
 from .pipelines import academic, lightrag, llamaindex
 from .pipelines.raganything import RAGAnythingPipeline
+from .pipelines import lego
 
 # Pipeline registry
 _PIPELINES: Dict[str, Callable] = {
@@ -17,6 +18,7 @@ _PIPELINES: Dict[str, Callable] = {
     "lightrag": lightrag.LightRAGPipeline,
     "llamaindex": llamaindex.LlamaIndexPipeline,
     "academic": academic.AcademicPipeline,
+    "lego_rag": lego.LegoRagPipeline,
 }
 
 
@@ -65,21 +67,31 @@ def list_pipelines() -> List[Dict[str, str]]:
             "id": "raganything",
             "name": "RAG-Anything",
             "description": "End-to-end academic document processing (MinerU + LightRAG)",
+            "supported_modes": ["hybrid", "local", "global", "naive"],
         },
         {
             "id": "lightrag",
             "name": "LightRAG",
             "description": "Component-based pipeline with knowledge graph",
+            "supported_modes": ["hybrid", "local", "global", "naive"],
         },
         {
             "id": "llamaindex",
             "name": "LlamaIndex",
             "description": "Fast vector-based retrieval",
+            "supported_modes": ["naive"],
         },
         {
             "id": "academic",
             "name": "Academic",
             "description": "Academic documents with numbered item extraction",
+            "supported_modes": ["naive"],
+        },
+        {
+            "id": "lego_rag",
+            "name": "Lego RAG",
+            "description": "Integrated Lego RAG system (LangChain-based)",
+            "supported_modes": ["hybrid", "naive"],
         },
     ]
 

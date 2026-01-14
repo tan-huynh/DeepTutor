@@ -22,6 +22,7 @@ from src.api.routers import (
     solve,
     system,
 )
+from src.lego_rag.api.routes import router as lego_rag_router
 from src.logging import get_logger
 
 logger = get_logger("API")
@@ -86,6 +87,7 @@ app.include_router(system.router, prefix="/api/v1/system", tags=["system"])
 app.include_router(llm_provider.router, prefix="/api/v1/config/llm", tags=["config"])
 app.include_router(embedding_provider.router, prefix="/api/v1/config/embedding", tags=["config"])
 app.include_router(agent_config.router, prefix="/api/v1/config", tags=["config"])
+app.include_router(lego_rag_router, prefix="/api/v1/lego", tags=["lego_rag"])
 
 
 @app.get("/")
