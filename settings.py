@@ -136,6 +136,48 @@ class RagSettings(BaseSettings):
     )
 
 
+
+class LegoRagSettings(BaseSettings):
+    # Environment vars for Lego RAG
+    model_config = SettingsConfigDict(
+        env_prefix="",  # No prefix as they are direct env vars in lego_rag
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    data_path: str = Field(
+        default="data",
+        description="Path to folder containing data (pdfs, text, docx etc).",
+        validation_alias="DATA_FOLDER_PATH",
+    )
+    embedding_model_path: str = Field(
+        default="",
+        description="Path to embedding model local folder.",
+        validation_alias="EMBEDDING_MODEL_PATH",
+    )
+    vector_db_path: str = Field(
+        default="data/vectordb",
+        description="Path to vector database folder.",
+        validation_alias="VECTOR_DB_PATH",
+    )
+    knowledge_graph_path: str = Field(
+        default="data/kg.pkl",
+        description="Path to knowledge graph .pkl file.",
+        validation_alias="KNOWLEDGE_GRAPH_PATH",
+    )
+    collection_name: str = Field(
+        default="deep_tutor",
+        description="Name of collection.",
+        validation_alias="COLLECTION_NAME",
+    )
+    docstore_path: str = Field(
+        default="data/docstore",
+        description="Path to docstore.",
+        validation_alias="DOCSTORE_PATH",
+    )
+
+
 class Settings(BaseSettings):
     """
     Loads values from .env (env_file).
@@ -147,6 +189,7 @@ class Settings(BaseSettings):
     web_search: WebSearchSettings = WebSearchSettings()
     logging: LoggingSettings = LoggingSettings()
     rag: RagSettings = RagSettings()
+    lego_rag: LegoRagSettings = LegoRagSettings()
 
 
 settings = Settings()
