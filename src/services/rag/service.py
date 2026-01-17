@@ -5,11 +5,14 @@ RAG Service
 Unified RAG service providing a single entry point for all RAG operations.
 """
 
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.logging import get_logger
+from src.knowledge.storage import KnowledgeBaseStorage
 
 # Default knowledge base directory
 DEFAULT_KB_BASE_DIR = str(
@@ -18,227 +21,83 @@ DEFAULT_KB_BASE_DIR = str(
 
 
 class RAGService:
-    """
-    Unified RAG service entry point.
-
-    Provides a clean interface for RAG operations:
-    - Knowledge base initialization
-    - Search/retrieval
-    - Knowledge base deletion
-
-    Usage:
-        # Default configuration
-        service = RAGService()
-        await service.initialize("my_kb", ["doc1.pdf"])
-        result = await service.search("query", "my_kb")
-
-        # Custom configuration for testing
-        service = RAGService(kb_base_dir="/tmp/test_kb", provider="llamaindex")
-        await service.initialize("test", ["test.txt"])
-    """
-
     def __init__(
         self,
         kb_base_dir: Optional[str] = None,
-        provider: Optional[str] = None,
+        method: Optional[str] = None,
+        storage: Optional[KnowledgeBaseStorage] = None,
     ):
-        """
-        Initialize RAG service.
-
-        Args:
-            kb_base_dir: Base directory for knowledge bases.
-                         Defaults to data/knowledge_bases.
-            provider: RAG pipeline provider to use.
-                      Defaults to RAG_PROVIDER env var or "raganything".
-        """
         self.logger = get_logger("RAGService")
         self.kb_base_dir = kb_base_dir or DEFAULT_KB_BASE_DIR
-        self.provider = provider or os.getenv("RAG_PROVIDER", "raganything")
-        self._pipeline = None
+        self.default_method = method or os.getenv("RAG_METHOD", "text-lightrag")
+        self.storage = storage or KnowledgeBaseStorage()
 
-    def _get_pipeline(self):
-        """Get or create pipeline instance."""
-        if self._pipeline is None:
-            from .factory import get_pipeline
+    async def initialize(self, kb_name: str, file_paths: List[str], method: Optional[str] = None, **kwargs) -> bool:
+        method_id = method or self.default_method
+        self.storage.register_kb(kb_name, method_id)
+        self.storage.update_progress(kb_name, stage="initializing", percent=10, message="Parsing documents")
 
-            self._pipeline = get_pipeline(self.provider, kb_base_dir=self.kb_base_dir)
-        return self._pipeline
+        from .factory import get_method
 
-    async def initialize(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
-        """
-        Initialize a knowledge base with documents.
+        rag_method = get_method(method_id, kb_base_dir=self.kb_base_dir, storage=self.storage)
+        success = await rag_method.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
 
-        Args:
-            kb_name: Knowledge base name
-            file_paths: List of file paths to process
-            **kwargs: Additional arguments passed to pipeline
+        if success:
+            self.storage.set_method(kb_name, method_id)
+            self.storage.add_documents(kb_name, file_paths)
+            self.storage.update_progress(kb_name, stage="completed", percent=100, message="Initialization completed")
+        return success
 
-        Returns:
-            True if successful
+    async def add_documents(self, kb_name: str, file_paths: List[str], **kwargs) -> bool:
+        method_id = self._get_method_for_kb(kb_name)
+        self.storage.update_progress(kb_name, stage="adding", percent=10, message="Adding documents")
 
-        Example:
-            service = RAGService()
-            success = await service.initialize("my_kb", ["doc1.pdf", "doc2.txt"])
-        """
-        self.logger.info(f"Initializing KB '{kb_name}' with provider '{self.provider}'")
-        pipeline = self._get_pipeline()
-        return await pipeline.initialize(kb_name=kb_name, file_paths=file_paths, **kwargs)
+        from .factory import get_method
 
-    async def search(
-        self, query: str, kb_name: str, mode: str = "hybrid", **kwargs
-    ) -> Dict[str, Any]:
-        """
-        Search a knowledge base.
+        rag_method = get_method(method_id, kb_base_dir=self.kb_base_dir, storage=self.storage)
+        success = await rag_method.add_documents(kb_name=kb_name, file_paths=file_paths, **kwargs)
 
-        Args:
-            query: Search query
-            kb_name: Knowledge base name
-            mode: Search mode (hybrid, local, global, naive)
-            **kwargs: Additional arguments passed to pipeline
+        if success:
+            self.storage.add_documents(kb_name, file_paths)
+            self.storage.update_progress(kb_name, stage="completed", percent=100, message="Documents added")
+        return success
 
-        Returns:
-            Search results dictionary with keys:
-            - query: Original query
-            - answer: Generated answer
-            - content: Retrieved content
-            - mode: Search mode used
-            - provider: Pipeline provider used
+    async def search(self, query: str, kb_name: str, mode: str = "hybrid", **kwargs) -> Dict[str, Any]:
+        method_id = self._get_method_for_kb(kb_name)
+        from .factory import get_method
 
-        Example:
-            service = RAGService()
-            result = await service.search("What is ML?", "textbook")
-            print(result["answer"])
-        """
-        # Get the provider from KB metadata, fallback to instance provider
-        provider = self._get_provider_for_kb(kb_name)
-
-        self.logger.info(
-            f"Searching KB '{kb_name}' with provider '{provider}' and query: {query[:50]}..."
-        )
-
-        # Get pipeline for the specific provider
-        from .factory import get_pipeline
-
-        pipeline = get_pipeline(provider, kb_base_dir=self.kb_base_dir)
-
-        result = await pipeline.search(query=query, kb_name=kb_name, mode=mode, **kwargs)
-
-        # Ensure consistent return format
-        if "query" not in result:
-            result["query"] = query
-        if "answer" not in result and "content" in result:
-            result["answer"] = result["content"]
-        if "content" not in result and "answer" in result:
-            result["content"] = result["answer"]
-        if "provider" not in result:
-            result["provider"] = provider
-        if "mode" not in result:
-            result["mode"] = mode
-
-        return result
-
-    def _get_provider_for_kb(self, kb_name: str) -> str:
-        """
-        Get the RAG provider for a specific knowledge base from its metadata.
-        Falls back to instance provider or env var if not found in metadata.
-
-        Args:
-            kb_name: Knowledge base name
-
-        Returns:
-            Provider name (e.g., 'llamaindex', 'lightrag', 'raganything')
-        """
-        try:
-            import json
-
-            metadata_file = Path(self.kb_base_dir) / kb_name / "metadata.json"
-
-            if metadata_file.exists():
-                with open(metadata_file, encoding="utf-8") as f:
-                    metadata = json.load(f)
-                    provider = metadata.get("rag_provider")
-                    if provider:
-                        self.logger.info(f"Using provider '{provider}' from KB metadata")
-                        return provider
-
-            # Fallback to instance provider
-            self.logger.info(f"No provider in metadata, using instance provider: {self.provider}")
-            return self.provider
-
-        except Exception as e:
-            self.logger.warning(
-                f"Error reading provider from metadata: {e}, using instance provider"
-            )
-            return self.provider
+        rag_method = get_method(method_id, kb_base_dir=self.kb_base_dir, storage=self.storage)
+        return await rag_method.search(query=query, kb_name=kb_name, mode=mode, **kwargs)
 
     async def delete(self, kb_name: str) -> bool:
-        """
-        Delete a knowledge base.
-
-        Args:
-            kb_name: Knowledge base name
-
-        Returns:
-            True if successful
-
-        Example:
-            service = RAGService()
-            success = await service.delete("old_kb")
-        """
-        self.logger.info(f"Deleting KB '{kb_name}'")
-        pipeline = self._get_pipeline()
-
-        if hasattr(pipeline, "delete"):
-            return await pipeline.delete(kb_name=kb_name)
-
-        # Fallback: delete directory manually
-        import shutil
-
         kb_dir = Path(self.kb_base_dir) / kb_name
         if kb_dir.exists():
+            import shutil
+
             shutil.rmtree(kb_dir)
-            self.logger.info(f"Deleted KB directory: {kb_dir}")
-            return True
-        return False
+        kb_meta = self.storage.user_dir / f"{kb_name}.json"
+        if kb_meta.exists():
+            kb_meta.unlink()
+        if self.storage.get_default_kb() == kb_name:
+            self.storage.set_default_kb(None)
+        return True
+
+    def _get_method_for_kb(self, kb_name: str) -> str:
+        data = self.storage.load_kb(kb_name)
+        return data.get("method") or self.default_method
 
     @staticmethod
     def list_providers() -> List[Dict[str, str]]:
-        """
-        List available RAG pipeline providers.
+        from .factory import list_methods
 
-        Returns:
-            List of provider info dictionaries
-
-        Example:
-            providers = RAGService.list_providers()
-            for p in providers:
-                print(f"{p['id']}: {p['description']}")
-        """
-        from .factory import list_pipelines
-
-        return list_pipelines()
+        return list_methods()
 
     @staticmethod
     def get_current_provider() -> str:
-        """
-        Get the currently configured default provider.
-
-        Returns:
-            Provider name from RAG_PROVIDER env var or default
-        """
-        return os.getenv("RAG_PROVIDER", "raganything")
+        return os.getenv("RAG_METHOD", "text-lightrag")
 
     @staticmethod
     def has_provider(name: str) -> bool:
-        """
-        Check if a provider is available.
+        from .factory import has_method
 
-        Args:
-            name: Provider name
-
-        Returns:
-            True if provider exists
-        """
-        from .factory import has_pipeline
-
-        return has_pipeline(name)
+        return has_method(name)

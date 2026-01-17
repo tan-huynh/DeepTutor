@@ -27,7 +27,7 @@ from pydantic import BaseModel
 
 from src.api.utils.progress_broadcaster import ProgressBroadcaster
 from src.api.utils.task_id_manager import TaskIDManager
-from src.knowledge.add_documents import DocumentAdder
+from src.knowledge.document_adder import DocumentAdder
 from src.knowledge.initializer import KnowledgeBaseInitializer
 from src.knowledge.manager import KnowledgeBaseManager
 from src.knowledge.progress_tracker import ProgressStage, ProgressTracker
@@ -123,9 +123,11 @@ async def run_initialization_task(initializer: KnowledgeBaseInitializer):
         logger.success(f"[{task_id}] KB '{initializer.kb_name}' initialized")
         task_manager.update_task_status(task_id, "completed")
     except Exception as e:
+        import traceback
         error_msg = str(e)
+        full_traceback = traceback.format_exc()
 
-        logger.error(f"[{task_id}] KB '{initializer.kb_name}' init failed: {error_msg}")
+        logger.error(f"[{task_id}] KB '{initializer.kb_name}' init failed: {error_msg}\n{full_traceback}")
 
         task_manager.update_task_status(task_id, "error", error=error_msg)
 
@@ -208,12 +210,9 @@ async def health_check():
     """Health check endpoint"""
     try:
         manager = get_kb_manager()
-        config_exists = manager.config_file.exists()
         kb_count = len(manager.list_knowledge_bases())
         return {
             "status": "ok",
-            "config_file": str(manager.config_file),
-            "config_exists": config_exists,
             "base_dir": str(manager.base_dir),
             "base_dir_exists": manager.base_dir.exists(),
             "knowledge_bases_count": kb_count,

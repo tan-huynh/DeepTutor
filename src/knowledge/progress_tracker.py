@@ -1,182 +1,52 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 """
-Progress Tracker - Tracks knowledge base initialization progress
+Simplified progress tracking for knowledge base operations.
 """
 
-import asyncio
-from collections.abc import Callable
-from datetime import datetime
+from __future__ import annotations
+
+from dataclasses import dataclass
 from enum import Enum
-import json
 from pathlib import Path
-import sys
+from typing import Optional
 
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-# Use unified logging system
-from src.logging import get_logger
-
-_logger = get_logger("KnowledgeInit")
+from src.knowledge.storage import KnowledgeBaseStorage
 
 
-def _get_logger():
-    return _logger
+class ProgressStage(str, Enum):
+    INITIALIZING = "initializing"
+    PROCESSING_DOCUMENTS = "processing_documents"
+    EXTRACTING_ITEMS = "extracting_items"
+    COMPLETED = "completed"
+    ERROR = "error"
 
 
-class ProgressStage(Enum):
-    """Initialization stage"""
-
-    INITIALIZING = "initializing"  # Initializing
-    PROCESSING_DOCUMENTS = "processing_documents"  # Processing documents
-    PROCESSING_FILE = "processing_file"  # Processing single file
-    EXTRACTING_ITEMS = "extracting_items"  # Extracting numbered items
-    COMPLETED = "completed"  # Completed
-    ERROR = "error"  # Error
-
-
+@dataclass
 class ProgressTracker:
-    """Progress tracker"""
+    kb_name: str
+    base_dir: Path
+    task_id: Optional[str] = None
 
-    def __init__(self, kb_name: str, base_dir: Path):
-        self.kb_name = kb_name
-        self.base_dir = base_dir
-        self.kb_dir = base_dir / kb_name
-        self.progress_file = self.kb_dir / ".progress.json"
-        self._callbacks: list = []  # Support multiple callbacks
-        self.task_id: str | None = None  # Task ID (for log identification)
+    def __post_init__(self) -> None:
+        self.storage = KnowledgeBaseStorage(project_root=Path(__file__).resolve().parent.parent.parent)
 
-    def set_callback(self, callback: Callable[[dict], None]):
-        """Set progress callback function (can be called multiple times to add multiple callbacks)"""
-        if callback not in self._callbacks:
-            self._callbacks.append(callback)
+    def update(self, stage: ProgressStage, message: str, current: int = 0, total: int = 0, error: str = "") -> None:
+        percent = 0
+        if total > 0:
+            percent = int(current / total * 100)
+        if stage == ProgressStage.COMPLETED:
+            percent = 100
+        self.storage.update_progress(self.kb_name, stage=stage.value, percent=percent, message=message)
 
-    def remove_callback(self, callback: Callable[[dict], None]):
-        """Remove progress callback function"""
-        if callback in self._callbacks:
-            self._callbacks.remove(callback)
+    def get_progress(self):
+        return self.storage.load_kb(self.kb_name).get("progress")
 
-    def _notify(self, progress: dict):
-        """Notify progress update (call all callbacks)"""
-        # Try to send via broadcaster (if available)
-        try:
-            from src.api.utils.progress_broadcaster import ProgressBroadcaster
+    def clear(self) -> None:
+        kb_path = self.storage.user_dir / f"{self.kb_name}.json"
+        if not kb_path.exists():
+            return  # KB already deleted, nothing to clear
+        data = self.storage.load_kb(self.kb_name)
+        data["progress"] = {}
+        self.storage.save_kb(self.kb_name, data)
 
-            broadcaster = ProgressBroadcaster.get_instance()
-
-            # Try to get current event loop and broadcast
-            try:
-                loop = asyncio.get_running_loop()
-                # If event loop is running, use create_task (non-blocking)
-                asyncio.create_task(broadcaster.broadcast(self.kb_name, progress))
-            except RuntimeError:
-                # No running event loop, try to get main event loop
-                try:
-                    # Try to get main event loop (FastAPI main loop)
-                    loop = asyncio.get_event_loop()
-                    if loop.is_running():
-                        # If loop is running, create task
-                        asyncio.create_task(broadcaster.broadcast(self.kb_name, progress))
-                    else:
-                        # If loop exists but not running, try to run (may fail, but doesn't affect main flow)
-                        try:
-                            loop.run_until_complete(broadcaster.broadcast(self.kb_name, progress))
-                        except RuntimeError:
-                            # Cannot run, ignore
-                            pass
-                except RuntimeError:
-                    pass
-        except (ImportError, Exception):
-            # Broadcaster unavailable or error, continue using callbacks
-            # Don't print error to avoid interfering with normal flow
-            pass
-
-        # Call all registered callbacks
-        for callback in self._callbacks:
-            try:
-                callback(progress)
-            except Exception as e:
-                print(f"[ProgressTracker] Callback error: {e}")
-
-    def _save_progress(self, progress: dict):
-        """Save progress to file"""
-        try:
-            self.kb_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.progress_file, "w", encoding="utf-8") as f:
-                json.dump(progress, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            print(f"[ProgressTracker] Failed to save progress: {e}")
-
-    def update(
-        self,
-        stage: ProgressStage,
-        message: str = "",
-        current: int = 0,
-        total: int = 0,
-        file_name: str = "",
-        error: str | None = None,
-    ):
-        """Update progress"""
-        progress = {
-            "kb_name": self.kb_name,
-            "stage": stage.value,
-            "message": message,
-            "current": current,
-            "total": total,
-            "file_name": file_name,
-            "progress_percent": int(current / total * 100) if total > 0 else 0,
-            "timestamp": datetime.now().isoformat(),
-        }
-
-        if error:
-            progress["error"] = error
-            progress["stage"] = ProgressStage.ERROR.value
-
-        # Output to logger (terminal and log file)
-        try:
-            logger = _get_logger()
-            prefix = f"[{self.task_id}]" if self.task_id else ""
-
-            if total > 0:
-                percent = progress["progress_percent"]
-                progress_msg = f"{prefix} {message} ({current}/{total}, {percent}%)"
-                if file_name:
-                    progress_msg += f" - File: {file_name}"
-            else:
-                progress_msg = f"{prefix} {message}"
-                if file_name:
-                    progress_msg += f" - File: {file_name}"
-
-            if error:
-                logger.error(f"{progress_msg} - Error: {error}")
-            else:
-                logger.progress(progress_msg)
-        except Exception:
-            # If logging fails, print to console
-            prefix = f"[{self.task_id}]" if self.task_id else ""
-            print(f"{prefix} [ProgressTracker] {message} ({current}/{total if total > 0 else '?'})")
-            if error:
-                print(f"{prefix} [ProgressTracker] Error: {error}")
-
-        self._save_progress(progress)
-        self._notify(progress)
-
-    def get_progress(self) -> dict | None:
-        """Get current progress"""
-        if not self.progress_file.exists():
-            return None
-
-        try:
-            with open(self.progress_file, encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[ProgressTracker] Failed to read progress: {e}")
-            return None
-
-    def clear(self):
-        """Clear progress file"""
-        if self.progress_file.exists():
-            try:
-                self.progress_file.unlink()
-            except Exception as e:
-                print(f"[ProgressTracker] Failed to clear progress: {e}")

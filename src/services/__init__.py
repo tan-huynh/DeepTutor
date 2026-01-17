@@ -5,7 +5,7 @@ Services Layer
 Unified service layer for DeepTutor providing:
 - LLM client and configuration
 - Embedding client and configuration
-- RAG pipelines and components
+- RAG methods
 - Prompt management
 - TTS configuration
 - Web Search providers
@@ -15,7 +15,7 @@ Unified service layer for DeepTutor providing:
 Usage:
     from src.services.llm import get_llm_client
     from src.services.embedding import get_embedding_client
-    from src.services.rag import get_pipeline
+    from src.services.rag import get_method
     from src.services.prompt import get_prompt_manager
     from src.services.tts import get_tts_config
     from src.services.search import web_search
@@ -31,8 +31,8 @@ Usage:
     vectors = await embed.embed(["text1", "text2"])
 
     # RAG
-    pipeline = get_pipeline("raganything")
-    result = await pipeline.search("query", "kb_name")
+    method = get_method("mineru-lightrag")
+    result = await method.search("query", "kb_name")
 
     # Prompt
     pm = get_prompt_manager()

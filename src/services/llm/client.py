@@ -108,13 +108,13 @@ class LLMClient:
         if not uses_openai_style:
             from . import factory
 
-            def llm_model_func_via_factory(
+            async def llm_model_func_via_factory(
                 prompt: str,
                 system_prompt: Optional[str] = None,
                 history_messages: Optional[List[Dict]] = None,
                 **kwargs: Any,
             ):
-                return factory.complete(
+                return await factory.complete(
                     prompt=prompt,
                     system_prompt=system_prompt or "You are a helpful assistant.",
                     model=self.config.model,
@@ -130,7 +130,7 @@ class LLMClient:
         # OpenAI-compatible bindings use lightrag (has caching)
         from lightrag.llm.openai import openai_complete_if_cache
 
-        def llm_model_func(
+        async def llm_model_func(
             prompt: str,
             system_prompt: Optional[str] = None,
             history_messages: Optional[List[Dict]] = None,
@@ -147,7 +147,7 @@ class LLMClient:
             api_version = getattr(self.config, "api_version", None)
             if api_version:
                 lightrag_kwargs["api_version"] = api_version
-            return openai_complete_if_cache(
+            return await openai_complete_if_cache(
                 self.config.model,
                 prompt,
                 **lightrag_kwargs,
@@ -171,7 +171,7 @@ class LLMClient:
         if not uses_openai_style:
             from . import factory
 
-            def vision_model_func_via_factory(
+            async def vision_model_func_via_factory(
                 prompt: str,
                 system_prompt: Optional[str] = None,
                 history_messages: Optional[List[Dict]] = None,
@@ -180,7 +180,7 @@ class LLMClient:
                 **kwargs: Any,
             ):
                 # Use factory for unified handling
-                return factory.complete(
+                return await factory.complete(
                     prompt=prompt,
                     system_prompt=system_prompt or "You are a helpful assistant.",
                     model=self.config.model,
@@ -201,7 +201,7 @@ class LLMClient:
         # Get api_version once for reuse
         api_version = getattr(self.config, "api_version", None)
 
-        def vision_model_func(
+        async def vision_model_func(
             prompt: str,
             system_prompt: Optional[str] = None,
             history_messages: Optional[List[Dict]] = None,
@@ -224,7 +224,7 @@ class LLMClient:
                 }
                 if api_version:
                     lightrag_kwargs["api_version"] = api_version
-                return openai_complete_if_cache(
+                return await openai_complete_if_cache(
                     self.config.model,
                     prompt="",
                     **lightrag_kwargs,
@@ -251,7 +251,7 @@ class LLMClient:
                 }
                 if api_version:
                     lightrag_kwargs["api_version"] = api_version
-                return openai_complete_if_cache(
+                return await openai_complete_if_cache(
                     self.config.model,
                     prompt="",
                     **lightrag_kwargs,
@@ -267,7 +267,7 @@ class LLMClient:
             }
             if api_version:
                 lightrag_kwargs["api_version"] = api_version
-            return openai_complete_if_cache(
+            return await openai_complete_if_cache(
                 self.config.model,
                 prompt,
                 **lightrag_kwargs,

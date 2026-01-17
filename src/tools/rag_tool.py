@@ -25,7 +25,7 @@ async def rag_search(
     query: str,
     kb_name: Optional[str] = None,
     mode: str = "hybrid",
-    provider: Optional[str] = None,
+    method: Optional[str] = None,
     kb_base_dir: Optional[str] = None,
     **kwargs,
 ) -> dict:
@@ -36,7 +36,7 @@ async def rag_search(
         query: Query question
         kb_name: Knowledge base name (optional, defaults to default knowledge base)
         mode: Query mode (e.g., "hybrid", "local", "global", "naive")
-        provider: RAG pipeline to use (defaults to RAG_PROVIDER env var or "raganything")
+        method: RAG method to use (defaults to RAG_METHOD env var or "text-lightrag")
         kb_base_dir: Base directory for knowledge bases (for testing)
         **kwargs: Additional parameters passed to the RAG pipeline
 
@@ -55,13 +55,13 @@ async def rag_search(
         Exception: If the query fails
 
     Example:
-        # Use default provider (from .env)
+        # Use default method (from .env)
         result = await rag_search("What is machine learning?", kb_name="textbook")
 
-        # Override provider
-        result = await rag_search("What is ML?", kb_name="textbook", provider="lightrag")
+        # Override method
+        result = await rag_search("What is ML?", kb_name="textbook", method="text-lightrag")
     """
-    service = RAGService(kb_base_dir=kb_base_dir, provider=provider)
+    service = RAGService(kb_base_dir=kb_base_dir, method=method)
 
     try:
         return await service.search(query=query, kb_name=kb_name, mode=mode, **kwargs)
@@ -72,7 +72,7 @@ async def rag_search(
 async def initialize_rag(
     kb_name: str,
     documents: List[str],
-    provider: Optional[str] = None,
+    method: Optional[str] = None,
     kb_base_dir: Optional[str] = None,
     **kwargs,
 ) -> bool:
@@ -82,7 +82,7 @@ async def initialize_rag(
     Args:
         kb_name: Knowledge base name
         documents: List of document file paths to index
-        provider: RAG pipeline to use (defaults to RAG_PROVIDER env var)
+        method: RAG method to use (defaults to RAG_METHOD env var)
         kb_base_dir: Base directory for knowledge bases (for testing)
         **kwargs: Additional arguments passed to pipeline
 
@@ -93,13 +93,13 @@ async def initialize_rag(
         documents = ["doc1.pdf", "doc2.txt"]
         success = await initialize_rag("my_kb", documents)
     """
-    service = RAGService(kb_base_dir=kb_base_dir, provider=provider)
-    return await service.initialize(kb_name=kb_name, file_paths=documents, **kwargs)
+    service = RAGService(kb_base_dir=kb_base_dir, method=method)
+    return await service.initialize(kb_name=kb_name, file_paths=documents, method=method, **kwargs)
 
 
 async def delete_rag(
     kb_name: str,
-    provider: Optional[str] = None,
+    method: Optional[str] = None,
     kb_base_dir: Optional[str] = None,
 ) -> bool:
     """
@@ -107,7 +107,7 @@ async def delete_rag(
 
     Args:
         kb_name: Knowledge base name
-        provider: RAG pipeline to use (defaults to RAG_PROVIDER env var)
+        method: RAG method to use (defaults to RAG_METHOD env var)
         kb_base_dir: Base directory for knowledge bases (for testing)
 
     Returns:
@@ -116,33 +116,33 @@ async def delete_rag(
     Example:
         success = await delete_rag("old_kb")
     """
-    service = RAGService(kb_base_dir=kb_base_dir, provider=provider)
+    service = RAGService(kb_base_dir=kb_base_dir, method=method)
     return await service.delete(kb_name=kb_name)
 
 
-def get_available_providers() -> List[Dict]:
+def get_available_methods() -> List[Dict]:
     """
-    Get list of available RAG pipelines.
+    Get list of available RAG methods.
 
     Returns:
         List of pipeline information dictionaries
 
     Example:
-        providers = get_available_providers()
-        for p in providers:
-            print(f"{p['name']}: {p['description']}")
+        methods = get_available_methods()
+        for m in methods:
+            print(f\"{m['name']}: {m['description']}\")
     """
     return RAGService.list_providers()
 
 
-def get_current_provider() -> str:
-    """Get the currently configured RAG provider"""
+def get_current_method() -> str:
+    """Get the currently configured RAG method"""
     return RAGService.get_current_provider()
 
 
 # Backward compatibility aliases
-get_available_plugins = get_available_providers
-list_providers = RAGService.list_providers
+get_available_providers = get_available_methods
+list_methods = RAGService.list_providers
 
 
 if __name__ == "__main__":
@@ -153,11 +153,11 @@ if __name__ == "__main__":
 
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
-    # List available providers
-    print("Available RAG Pipelines:")
-    for provider in get_available_providers():
-        print(f"  - {provider['id']}: {provider['description']}")
-    print(f"\nCurrent provider: {get_current_provider()}\n")
+    # List available methods
+    print("Available RAG Methods:")
+    for method in get_available_methods():
+        print(f"  - {method['id']}: {method['description']}")
+    print(f"\nCurrent method: {get_current_method()}\n")
 
     # Test search (requires existing knowledge base)
     result = asyncio.run(
@@ -170,4 +170,4 @@ if __name__ == "__main__":
 
     print(f"Query: {result['query']}")
     print(f"Answer: {result['answer']}")
-    print(f"Provider: {result.get('provider', 'unknown')}")
+    print(f"Method: {result.get('provider', 'unknown')}")

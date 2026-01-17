@@ -98,7 +98,7 @@ export default function KnowledgePage() {
   const [uploadFiles, setUploadFiles] = useState<UploadFile[]>([]);
   const [newKbName, setNewKbName] = useState("");
   const [dragActive, setDragActive] = useState(false);
-  const [ragProvider, setRagProvider] = useState<string>("llamaindex");
+  const [ragProvider, setRagProvider] = useState<string>("raganything");
   const [ragProviders, setRagProviders] = useState<
     Array<{ id: string; name: string; description: string }>
   >([]);

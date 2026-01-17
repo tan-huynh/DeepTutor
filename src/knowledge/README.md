@@ -11,7 +11,7 @@ knowledge/
 ├── start_kb.py                    # Startup script (main entry) ⭐
 ├── kb.py                          # Quick startup script (recommended)
 ├── initializer.py                # Knowledge base initializer
-├── add_documents.py               # Incremental document addition ⭐ New feature
+├── document_adder.py               # Incremental document addition ⭐ New feature
 ├── manager.py                     # Knowledge base manager
 ├── extract_numbered_items.py      # Numbered items extractor
 ├── progress_tracker.py            # Progress tracking
@@ -96,22 +96,22 @@ Add new documents to existing knowledge base without recreating the entire knowl
 
 ```bash
 # Add single document to knowledge base
-python -m src.knowledge.add_documents ai_textbook --docs new_chapter.pdf
+python -m src.knowledge.document_adder ai_textbook --docs new_chapter.pdf
 
 # Add multiple documents
-python -m src.knowledge.add_documents math2211 --docs chapter1.pdf chapter2.pdf
+python -m src.knowledge.document_adder math2211 --docs chapter1.pdf chapter2.pdf
 
 # Add documents from directory
-python -m src.knowledge.add_documents ai_textbook --docs-dir ./new_materials/
+python -m src.knowledge.document_adder ai_textbook --docs-dir ./new_materials/
 
 # Allow overwriting duplicate files
-python -m src.knowledge.add_documents ai_textbook --docs document.pdf --allow-duplicates
+python -m src.knowledge.document_adder ai_textbook --docs document.pdf --allow-duplicates
 
 # Add files only, skip processing (process later manually)
-python -m src.knowledge.add_documents ai_textbook --docs file.pdf --skip-processing
+python -m src.knowledge.document_adder ai_textbook --docs file.pdf --skip-processing
 
 # Skip numbered items extraction
-python -m src.knowledge.add_documents ai_textbook --docs file.pdf --skip-extract
+python -m src.knowledge.document_adder ai_textbook --docs file.pdf --skip-extract
 ```
 
 **Benefits of incremental addition:**
@@ -153,7 +153,7 @@ python -m src.knowledge.start_kb clean-rag C2-test --no-backup
 - 🔄 Need to rebuild knowledge graph
 
 **After cleaning:**
-Use `add_documents.py` to reprocess documents to rebuild RAG storage
+Use `document_adder.py` to reprocess documents to rebuild RAG storage
 
 ### 9. Refresh Knowledge Base 🔄
 
@@ -251,7 +251,7 @@ When knowledge base already exists and you only need to add new documents:
 python -m src.knowledge.start_kb init ai_textbook --docs chapter10.pdf
 
 # Correct approach: Use incremental addition
-python -m src.knowledge.add_documents ai_textbook --docs chapter10.pdf
+python -m src.knowledge.document_adder ai_textbook --docs chapter10.pdf
 ```
 
 **Benefits:**
@@ -325,12 +325,12 @@ initializer = KnowledgeBaseInitializer(
 await initializer.process_documents()
 ```
 
-### add_documents.py - Incremental Document Addition ⭐
+### document_adder.py - Incremental Document Addition ⭐
 
 Adds new documents to existing knowledge base (incremental updates):
 
 ```python
-from src.knowledge.add_documents import DocumentAdder
+from src.knowledge.document_adder import DocumentAdder
 
 adder = DocumentAdder(
     kb_name="ai_textbook",
@@ -433,7 +433,7 @@ python -m src.knowledge.start_kb init kb_name --docs-dir ./documents/
 
 1. **Use start_kb.py or kb.py** - Unified entry point, avoid directly calling submodules
 2. **Configure default knowledge base** - Reduces need to specify knowledge base name each time
-3. **Incremental document addition** ⭐ - Use `add_documents.py` when adding new documents to existing knowledge base, not reinitialize
+3. **Incremental document addition** ⭐ - Use `document_adder.py` when adding new documents to existing knowledge base, not reinitialize
 4. **Regular cleanup** 🧹 - Use `clean-rag` command when encountering RAG errors
 5. **Careful deletion** 🗑️ - Ensure important data is backed up before deleting knowledge base
 6. **Regular backups** - `numbered_items.json` and `rag_storage/` are important
