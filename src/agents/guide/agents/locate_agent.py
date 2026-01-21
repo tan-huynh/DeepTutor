@@ -40,8 +40,8 @@ class LocateAgent(BaseAgent):
             user_query = record.get("user_query", "")
             output = record.get("output", "")
 
-            if len(output) > 2000:
-                output = output[:2000] + "\n...[Content truncated]..."
+            if len(output) > 10000:
+                output = output[:10000] + "\n...[Content truncated]..."
 
             formatted.append(
                 f"""

@@ -31,16 +31,18 @@ system: |
   3. **用户难点 (user_difficulty)**：分析用户的提问方式和问题内容，推测用户在理解这个知识点时可能遇到的困难
 
   # 输出格式
-  直接输出JSON数组（无Markdown格式）：
+  直接输出包含 "knowledge_points" 键的 JSON 对象，该键对应一个知识点数组：
   ```json
-  [
-    {
-      "knowledge_title": "知识点标题",
-      "knowledge_summary": "详细的知识点内容阐述...",
-      "user_difficulty": "用户可能存在的理解困难..."
-    },
-    ...
-  ]
+  {
+    "knowledge_points": [
+      {
+        "knowledge_title": "知识点标题",
+        "knowledge_summary": "详细的知识点内容阐述...",
+        "user_difficulty": "用户可能存在的理解困难..."
+      },
+      ...
+    ]
+  }
   ```
 
   # 注意事项

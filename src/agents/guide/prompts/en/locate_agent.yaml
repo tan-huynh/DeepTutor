@@ -31,16 +31,18 @@ system: |
   3. **User Difficulties (user_difficulty)**: Analyze the user's questioning style and question content to infer potential difficulties users may encounter when understanding this knowledge point
 
   # Output Format
-  Directly output JSON array (no Markdown format):
+  Directly output a JSON object with a "knowledge_points" key containing an array of knowledge points:
   ```json
-  [
-    {
-      "knowledge_title": "Knowledge Point Title",
-      "knowledge_summary": "Detailed elaboration of knowledge point content...",
-      "user_difficulty": "Potential understanding difficulties users may have..."
-    },
-    ...
-  ]
+  {
+    "knowledge_points": [
+      {
+        "knowledge_title": "Knowledge Point Title",
+        "knowledge_summary": "Detailed elaboration of knowledge point content...",
+        "user_difficulty": "Potential understanding difficulties users may have..."
+      },
+      ...
+    ]
+  }
   ```
 
   # Notes
