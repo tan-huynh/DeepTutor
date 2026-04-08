@@ -10,6 +10,7 @@ from datetime import datetime
 import os
 from pathlib import Path
 import traceback
+from typing import Any
 from uuid import uuid4
 
 from fastapi import (
@@ -28,11 +29,8 @@ from pydantic import BaseModel
 from deeptutor.api.utils.progress_broadcaster import ProgressBroadcaster
 from deeptutor.api.utils.task_id_manager import TaskIDManager
 from deeptutor.api.utils.task_log_stream import capture_task_logs, get_task_stream_manager
-from deeptutor.knowledge.add_documents import DocumentAdder
-from deeptutor.knowledge.initializer import KnowledgeBaseInitializer
 from deeptutor.knowledge.manager import KnowledgeBaseManager
 from deeptutor.knowledge.progress_tracker import ProgressStage, ProgressTracker
-from deeptutor.services.rag.components.routing import FileTypeRouter
 from deeptutor.services.rag.factory import DEFAULT_PROVIDER, has_pipeline, normalize_provider_name
 from deeptutor.utils.document_validator import DocumentValidator
 from deeptutor.utils.error_utils import format_exception_message
@@ -40,8 +38,12 @@ from deeptutor.utils.error_utils import format_exception_message
 from deeptutor.logging import get_logger
 from deeptutor.services.config import PROJECT_ROOT, load_config_with_main
 
-# Initialize logger with config
-config = load_config_with_main("main.yaml", PROJECT_ROOT)
+# Initialize logger with config when available, but keep list/health routes
+# operational even in lightweight or partially initialized environments.
+try:
+    config = load_config_with_main("main.yaml", PROJECT_ROOT)
+except Exception:
+    config = {}
 log_dir = config.get("paths", {}).get("user_log_dir") or config.get("logging", {}).get("log_dir")
 logger = get_logger("Knowledge", level="INFO", log_dir=log_dir)
 
@@ -74,6 +76,24 @@ def get_kb_manager():
     if kb_manager is None:
         kb_manager = KnowledgeBaseManager(base_dir=str(_kb_base_dir))
     return kb_manager
+
+
+def _get_document_adder_cls():
+    from deeptutor.knowledge.add_documents import DocumentAdder
+
+    return DocumentAdder
+
+
+def _get_initializer_cls():
+    from deeptutor.knowledge.initializer import KnowledgeBaseInitializer
+
+    return KnowledgeBaseInitializer
+
+
+def _get_allowed_extensions_for_provider(rag_provider: str) -> set[str]:
+    from deeptutor.services.rag.components.routing import FileTypeRouter
+
+    return FileTypeRouter.get_extensions_for_provider(rag_provider)
 
 
 class KnowledgeBaseInfo(BaseModel):
@@ -209,7 +229,7 @@ def _assert_kb_writable_or_409(kb_name: str, kb_entry: dict) -> None:
         )
 
 
-async def run_initialization_task(initializer: KnowledgeBaseInitializer, task_id: str):
+async def run_initialization_task(initializer: Any, task_id: str):
     """Background task for knowledge base initialization"""
     task_manager = TaskIDManager.get_instance()
     task_stream_manager = get_task_stream_manager()
@@ -317,6 +337,7 @@ async def run_upload_processing_task(
                 total=len(uploaded_file_paths),
             )
 
+            DocumentAdder = _get_document_adder_cls()
             adder = DocumentAdder(
                 kb_name=kb_name,
                 base_dir=base_dir,
@@ -568,9 +589,8 @@ async def list_knowledge_bases():
                     logger.error(f"Fallback also failed for KB '{name}': {fallback_err}")
 
         if errors and not result:
-            error_detail = f"Failed to load knowledge bases. Errors: {'; '.join(errors)}"
-            logger.error(error_detail)
-            raise HTTPException(status_code=500, detail=error_detail)
+            logger.error(f"Failed to load all knowledge bases, returning empty list. Errors: {errors}")
+            return []
 
         if errors:
             logger.warning(
@@ -584,7 +604,7 @@ async def list_knowledge_bases():
     except Exception as e:
         error_msg = f"Error listing knowledge bases: {e}"
         logger.error(f"{error_msg}\n{traceback.format_exc()}")
-        raise HTTPException(status_code=500, detail=f"Failed to list knowledge bases: {e!s}")
+        return []
 
 
 @router.get("/{kb_name}")
@@ -656,7 +676,7 @@ async def upload_files(
                     "Update KB config first."
                 ),
             )
-        allowed_extensions = FileTypeRouter.get_extensions_for_provider(kb_provider)
+        allowed_extensions = _get_allowed_extensions_for_provider(kb_provider)
         uploaded_files, uploaded_file_paths = _save_uploaded_files(
             files, raw_dir, allowed_extensions=allowed_extensions
         )
@@ -731,6 +751,7 @@ async def create_knowledge_base(
 
         progress_tracker = ProgressTracker(name, _kb_base_dir)
 
+        KnowledgeBaseInitializer = _get_initializer_cls()
         initializer = KnowledgeBaseInitializer(
             kb_name=name,
             base_dir=str(_kb_base_dir),
@@ -746,7 +767,7 @@ async def create_knowledge_base(
             logger.warning(f"KB {name} not found in config, registering manually")
             initializer._register_to_config()
 
-        allowed_extensions = FileTypeRouter.get_extensions_for_provider(rag_provider)
+        allowed_extensions = _get_allowed_extensions_for_provider(rag_provider)
         uploaded_files, _ = _save_uploaded_files(
             files, initializer.raw_dir, allowed_extensions=allowed_extensions
         )

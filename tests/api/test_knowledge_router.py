@@ -56,6 +56,16 @@ class _FakeKBManager:
         kb_dir.mkdir(parents=True, exist_ok=True)
         return kb_dir
 
+    def get_info(self, name: str) -> dict:
+        entry = self.config.get("knowledge_bases", {}).get(name, {})
+        return {
+            "name": name,
+            "is_default": False,
+            "statistics": {},
+            "status": entry.get("status"),
+            "progress": entry.get("progress"),
+        }
+
 
 class _FakeInitializer:
     def __init__(self, kb_name: str, base_dir: str, **_kwargs) -> None:
@@ -96,7 +106,7 @@ def test_rag_providers_returns_llamaindex_only() -> None:
 def test_create_kb_does_not_require_llm_precheck(monkeypatch, tmp_path: Path) -> None:
     manager = _FakeKBManager(tmp_path / "knowledge_bases")
     monkeypatch.setattr(knowledge_router_module, "get_kb_manager", lambda: manager)
-    monkeypatch.setattr(knowledge_router_module, "KnowledgeBaseInitializer", _FakeInitializer)
+    monkeypatch.setattr(knowledge_router_module, "_get_initializer_cls", lambda: _FakeInitializer)
     monkeypatch.setattr(knowledge_router_module, "get_llm_config", lambda: (_ for _ in ()).throw(RuntimeError("should not be called")), raising=False)
 
     async def _noop_init_task(*_args, **_kwargs):
@@ -201,3 +211,20 @@ def test_update_config_rejects_unregistered_provider() -> None:
 
     assert response.status_code == 400
     assert "Unsupported RAG provider" in response.json()["detail"]
+
+
+def test_list_returns_empty_list_when_all_kbs_fail(monkeypatch, tmp_path: Path) -> None:
+    manager = _FakeKBManager(tmp_path / "knowledge_bases")
+    manager.config["knowledge_bases"]["broken-kb"] = {"path": "broken-kb"}
+    monkeypatch.setattr(knowledge_router_module, "get_kb_manager", lambda: manager)
+
+    def _boom(_name: str | None = None) -> dict:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(manager, "get_info", _boom)
+
+    with TestClient(_build_app()) as client:
+        response = client.get("/api/v1/knowledge/list")
+
+    assert response.status_code == 200
+    assert response.json() == []

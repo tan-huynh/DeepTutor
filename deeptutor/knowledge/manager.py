@@ -238,33 +238,44 @@ class KnowledgeBaseManager:
         # This ensures backward compatibility and auto-discovery
         if self.base_dir.exists():
             config_changed = False
-            for item in self.base_dir.iterdir():
-                if not item.is_dir() or item.name.startswith(("__", ".")):
-                    continue
-                    
-                # Skip if already in config
-                if item.name in kb_list:
-                    continue
-                    
-                # Check if this is a valid KB directory (legacy rag_storage or llamaindex_storage)
-                rag_storage = item / "rag_storage"
-                llamaindex_storage = item / "llamaindex_storage"
-                is_valid_kb = (
-                    (rag_storage.exists() and rag_storage.is_dir()) or
-                    (llamaindex_storage.exists() and llamaindex_storage.is_dir())
-                )
-                
-                if is_valid_kb:
-                    # Auto-register this KB to kb_config.json
-                    kb_list.add(item.name)
-                    self._auto_register_kb(item.name)
-                    config_changed = True
-            
+            try:
+                for item in self.base_dir.iterdir():
+                    if not item.is_dir() or item.name.startswith(("__", ".")):
+                        continue
+
+                    # Skip if already in config
+                    if item.name in kb_list:
+                        continue
+
+                    # Auto-discover only KBs that have actual persisted index artifacts.
+                    # Empty compatibility directories are common leftovers and should not
+                    # surface as real knowledge bases in the UI.
+                    is_valid_kb = self._has_persisted_index_storage(item)
+
+                    if is_valid_kb:
+                        # Auto-register this KB to kb_config.json
+                        kb_list.add(item.name)
+                        self._auto_register_kb(item.name)
+                        config_changed = True
+            except OSError as e:
+                logger.warning(f"Failed to scan knowledge base directory '{self.base_dir}': {e}")
+
             # Save config if we registered new KBs
             if config_changed:
                 self._save_config()
 
         return sorted(kb_list)
+
+    def _has_persisted_index_storage(self, kb_dir: Path) -> bool:
+        """Return True when a KB directory has non-empty index storage."""
+        for storage_name in ("llamaindex_storage", "rag_storage"):
+            storage_dir = kb_dir / storage_name
+            try:
+                if storage_dir.exists() and storage_dir.is_dir() and any(storage_dir.iterdir()):
+                    return True
+            except OSError as e:
+                logger.warning(f"Failed to inspect storage for '{kb_dir.name}': {e}")
+        return False
     
     def _auto_register_kb(self, name: str):
         """Auto-register an existing KB to kb_config.json.
