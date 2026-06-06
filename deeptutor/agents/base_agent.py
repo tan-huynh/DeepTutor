@@ -119,6 +119,18 @@ class BaseAgent(ABC):
         else:
             self.llm_config = llm_cfg if isinstance(llm_cfg, dict) else {}
 
+        if self.llm_config:
+            self.api_key = self.llm_config.get("api_key", self.api_key) or self.api_key
+            self.base_url = (
+                self.llm_config.get("base_url")
+                or self.llm_config.get("host")
+                or self.llm_config.get("api_base")
+                or self.base_url
+            )
+            self.model = self.llm_config.get("model", self.model) or self.model
+            self.api_version = self.llm_config.get("api_version", self.api_version) or self.api_version
+            self.binding = self.llm_config.get("binding", self.binding) or self.binding
+
         # Agent status
         self.enabled = self.agent_config.get("enabled", True)
 
@@ -187,6 +199,11 @@ class BaseAgent(ABC):
         Returns:
             Temperature value
         """
+        if self.llm_config.get("temperature") is not None:
+            try:
+                return float(self.llm_config["temperature"])
+            except (TypeError, ValueError):
+                pass
         return self._agent_params["temperature"]
 
     def get_max_tokens(self) -> int:
@@ -196,6 +213,11 @@ class BaseAgent(ABC):
         Returns:
             Maximum token count
         """
+        if self.llm_config.get("max_tokens") is not None:
+            try:
+                return int(self.llm_config["max_tokens"])
+            except (TypeError, ValueError):
+                pass
         return self._agent_params["max_tokens"]
 
     def get_max_retries(self) -> int:
