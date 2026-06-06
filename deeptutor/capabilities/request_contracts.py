@@ -41,6 +41,17 @@ class DeepQuestionRequestConfig(BaseModel):
     max_questions: int = Field(default=10, ge=1, le=100)
 
 
+class CoScientistRequestConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_hypotheses: int = Field(default=3, ge=1, le=8)
+    max_evidence: int = Field(default=8, ge=1, le=20)
+    use_web_search: bool = True
+    tournament_rounds: int = Field(default=1, ge=1, le=5)
+    temperature: float = Field(default=0.45, ge=0.0, le=1.0)
+    require_evidence: bool = True
+
+
 def _clean_public_config(raw_config: dict[str, Any] | None) -> dict[str, Any]:
     if raw_config is None:
         return {}
@@ -85,6 +96,12 @@ def validate_deep_question_request_config(
     return _validate_model(DeepQuestionRequestConfig, raw_config, label="deep question")
 
 
+def validate_co_scientist_request_config(
+    raw_config: dict[str, Any] | None,
+) -> CoScientistRequestConfig:
+    return _validate_model(CoScientistRequestConfig, raw_config, label="co-scientist")
+
+
 def build_request_schema(model_type: type[BaseModel]) -> dict[str, Any]:
     return model_type.model_json_schema(mode="validation")
 
@@ -94,6 +111,7 @@ CAPABILITY_CONFIG_VALIDATORS: dict[str, Callable[[dict[str, Any] | None], Any]] 
     "deep_solve": validate_deep_solve_request_config,
     "deep_question": validate_deep_question_request_config,
     "deep_research": validate_research_request_config,
+    "co_scientist": validate_co_scientist_request_config,
     "math_animator": validate_math_animator_request_config,
 }
 
@@ -102,6 +120,7 @@ CAPABILITY_REQUEST_SCHEMAS: dict[str, dict[str, Any]] = {
     "deep_solve": build_request_schema(DeepSolveRequestConfig),
     "deep_question": build_request_schema(DeepQuestionRequestConfig),
     "deep_research": build_request_schema(DeepResearchRequestConfig),
+    "co_scientist": build_request_schema(CoScientistRequestConfig),
     "math_animator": build_request_schema(MathAnimatorRequestConfig),
 }
 
@@ -124,12 +143,14 @@ __all__ = [
     "CAPABILITY_CONFIG_VALIDATORS",
     "CAPABILITY_REQUEST_SCHEMAS",
     "ChatRequestConfig",
+    "CoScientistRequestConfig",
     "DeepQuestionRequestConfig",
     "DeepSolveRequestConfig",
     "build_request_schema",
     "get_capability_request_schema",
     "validate_capability_config",
     "validate_chat_request_config",
+    "validate_co_scientist_request_config",
     "validate_deep_question_request_config",
     "validate_deep_solve_request_config",
 ]
