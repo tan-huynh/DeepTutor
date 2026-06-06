@@ -2,7 +2,9 @@
 ProposalAgent — drafts the final research proposal in Markdown.
 
 Consolidates the top-ranked hypotheses, evidence, and critiques
-into a cohesive scientific report.
+into a cohesive, publication-quality scientific report with full
+academic structure: executive summary, hypothesis ranking table,
+experimental design, statistical plan, timeline, and risk register.
 """
 
 from __future__ import annotations
@@ -14,18 +16,35 @@ from .data_structures import CoScientistConfig, EvidenceItem, Hypothesis
 
 
 _SYSTEM_ZH = (
-    "你是一位资深的首席科学家。你的任务是基于之前生成的假设、同行评审意见和证据，"
-    "撰写一份最终的、严谨的科学研究提案 (Research Proposal)。"
+    "你是一位具有顶级期刊发表经验的首席科学家（Principal Investigator）。"
+    "你的任务是基于已生成的假设、同行评审意见、迭代演化历史和文献证据，"
+    "撰写一份达到资助申请或顶级会议投稿标准的最终科学研究提案。\n\n"
+    "写作要求：\n"
+    "- 学术严谨，逻辑清晰，每个论断都需引用证据\n"
+    "- 假设需有明确、可测量的评估标准\n"
+    "- 实验设计需包含控制组、消融实验和统计分析方案\n"
+    "- 风险需配套缓解策略\n"
+    "- 时间线需具体到月份级别的里程碑\n"
+    "- 直接输出Markdown，不要用代码块包裹"
 )
 
 _SYSTEM_EN = (
-    "You are a senior Principal Investigator. Your task is to write a final, rigorous "
-    "scientific Research Proposal based on the generated hypotheses, peer critiques, and evidence."
+    "You are a Principal Investigator with a track record of publishing in top-tier venues "
+    "and winning competitive research grants. Your task is to produce a final Research Proposal "
+    "that meets the standard of a grant application or flagship conference submission.\n\n"
+    "Writing standards:\n"
+    "- Every claim must be grounded in cited evidence (use [E1] format inline)\n"
+    "- Hypotheses must have specific, measurable evaluation criteria with numeric thresholds\n"
+    "- Experimental design must include control/treatment groups, ablation conditions, and power analysis\n"
+    "- Risks must be paired with concrete mitigation strategies\n"
+    "- Timeline must be month-level with named deliverables\n"
+    "- Statistical analysis plan must name specific tests and target effect sizes\n"
+    "- Output Markdown directly — do not wrap in code fences"
 )
 
 
 class ProposalAgent(BaseAgent):
-    """Drafts the final Markdown research proposal."""
+    """Drafts the final Markdown research proposal at grant-application quality."""
 
     def __init__(
         self,
@@ -58,7 +77,7 @@ class ProposalAgent(BaseAgent):
             progress_cb("proposal", "Drafting final research proposal…")
 
         system_prompt = _SYSTEM_ZH if self.language == "zh" else _SYSTEM_EN
-        user_prompt = self._build_prompt(cs_config.goal, hypotheses, evidence)
+        user_prompt = self._build_prompt(cs_config, hypotheses, evidence)
 
         chunks: list[str] = []
         async for chunk in self.stream_llm(
@@ -77,39 +96,178 @@ class ProposalAgent(BaseAgent):
 
         return response
 
-    def _build_prompt(self, goal: str, hypotheses: list[Hypothesis], evidence: list[EvidenceItem]) -> str:
-        e_text = "\n\n".join(f"[{e.id}] {e.title} - {e.snippet}" for e in evidence)
-        h_text = "\n\n".join(
-            f"Hypothesis {h.id} (Rank Score: {h.rank_score:.2f}):\n"
-            f"Statement: {h.statement}\nRationale: {h.rationale}\n"
-            f"Critique: {h.critique}\nRefinement: {h.refinement}\n"
-            f"Evidence used: {h.evidence_ids}"
-            for h in hypotheses
+    # ------------------------------------------------------------------
+    # Prompt construction helpers
+    # ------------------------------------------------------------------
+
+    def _build_prompt(
+        self,
+        cs_config: CoScientistConfig,
+        hypotheses: list[Hypothesis],
+        evidence: list[EvidenceItem],
+    ) -> str:
+        evidence_block = self._format_evidence(evidence)
+        hypothesis_block = self._format_hypotheses(hypotheses)
+        top_h = hypotheses[0] if hypotheses else None
+
+        lang_note = (
+            "Write the entire proposal in Chinese (中文)."
+            if self.language == "zh"
+            else "Write the entire proposal in English."
         )
+
+        top_h_summary = ""
+        if top_h:
+            top_h_summary = (
+                f"Top-ranked hypothesis: [{top_h.id}] {top_h.statement} "
+                f"(rank_score={top_h.rank_score:.2f}, "
+                f"novelty={top_h.novelty:.2f}, "
+                f"testability={top_h.testability:.2f}, "
+                f"impact={top_h.impact:.2f})"
+            )
 
         return f"""
 Research Goal:
-{goal}
+{cs_config.goal}
 
-Grounding Evidence:
-{e_text}
+{top_h_summary}
 
-Generated & Ranked Hypotheses:
-{h_text}
+--- EVIDENCE ---
+{evidence_block}
 
-Task:
-Write a comprehensive, professional Research Proposal in Markdown format.
-Do not wrap the whole response in a JSON block. Just output the Markdown text directly.
+--- ALL HYPOTHESES (ranked, best first) ---
+{hypothesis_block}
 
-Structure required:
-1. # Executive Summary (Brief overview of the goal and the top hypothesis)
-2. ## Grounding Evidence (Summary of the literature/data used)
-3. ## Competing Hypotheses (Present the hypotheses, their rationales, and their relative strengths/weaknesses based on the critiques)
-4. ## Proposed Experimental Design (How to test the top-ranked hypothesis)
-5. ## Expected Impact & Risks
+--- TASK ---
+{lang_note}
 
-Be academic, precise, and cite evidence using the [E1] format in the text.
+Write a comprehensive, grant-quality Research Proposal in Markdown.
+Use inline evidence citations [E1], [E2] throughout the text wherever claims are made.
+The proposal MUST contain ALL of the following sections in order:
+
+# [Title of the Research Proposal]
+  (A specific, descriptive title — NOT just "Research Proposal")
+
+## Executive Summary
+  (3–5 sentences: the research problem, the chosen approach, why it matters, and the primary outcome metric)
+
+## Background & Motivation
+  (Explain the scientific gap this research addresses. Ground every claim with evidence citations.
+   Describe what existing methods do and where they fail. Min 150 words.)
+
+## Grounding Evidence
+  (Present a structured summary of the evidence base. For each key evidence item, explain:
+   what it contributes, how it informs the hypotheses, and what gap it leaves open.
+   Use a subsection or bullet format per evidence source. Min 100 words.)
+
+## Competing Hypotheses
+  (Present ALL hypotheses with a comparative table and then per-hypothesis detail.
+
+  First, a Markdown table:
+  | ID | Statement (brief) | Rank Score | Novelty | Testability | Impact | Risk | Iteration |
+  |---|---|---|---|---|---|---|---|
+  (one row per hypothesis)
+
+  Then, for the top 2–3 hypotheses, provide:
+  ### Hypothesis [ID] — [short label]
+  **Statement**: full statement
+  **Rationale**: full rationale
+  **Strengths**: (from critique agent if available)
+  **Weaknesses / Critique**: (from critique agent)
+  **Proposed Refinement**: (from evolution)
+  **Evidence Support**: list evidence IDs and how they support this hypothesis
+  )
+
+## Primary Hypothesis & Justification
+  (Make a clear recommendation: explain WHY the top-ranked hypothesis is selected over competitors.
+   Reference the rank scores, critique severity, and evidence grounding.
+   Include the specific, measurable evaluation criteria for this hypothesis:
+   what metrics, what numeric thresholds, what comparison baseline.)
+
+## Proposed Experimental Design
+  (Detailed methodology to test the primary hypothesis. Must include:
+
+  ### Study Design Overview
+  (diagram or bullet: Control group / Ablation A / Ablation B / Treatment group)
+
+  ### Participants & Materials
+  (sample size with power analysis justification: target N=?, α=0.05, power=80%, expected effect size d=?)
+
+  ### Procedure
+  (step-by-step: data collection → system setup → intervention → measurement)
+
+  ### Evaluation Metrics
+  (table of metrics: | Metric | Tool/Method | Success Threshold |)
+
+  ### Statistical Analysis Plan
+  (name the specific statistical tests: t-test / ANOVA / mixed-effects model, correction method, effect size measure)
+
+  ### Controls & Ablations
+  (list each ablation condition and what it isolates)
+  )
+
+## Timeline
+  (Month-by-month plan. Format as a Markdown table:
+  | Month | Milestone | Deliverable |
+  Min 6 months. Each row must have a concrete, named deliverable.)
+
+## Expected Impact & Contributions
+  (Itemised list of: scientific contributions, practical applications, and broader significance.
+   Be specific — "will improve X by Y%" is better than "will improve X".)
+
+## Risk Register & Mitigation
+  (Markdown table:
+  | Risk | Likelihood (H/M/L) | Impact (H/M/L) | Mitigation Strategy |
+  Min 4 risks. Each must have a concrete mitigation, not just "we will monitor".)
+
+## References / Evidence Index
+  (List all cited evidence items in format: [E1] Title — Source — Year — Key finding used)
+
+Remember: every section must be substantive and specific. Vague generalisations are unacceptable.
+Cite evidence inline whenever making a factual claim.
 """.strip()
+
+    @staticmethod
+    def _format_evidence(evidence: list[EvidenceItem]) -> str:
+        if not evidence:
+            return "(No evidence provided)"
+        lines: list[str] = []
+        for e in evidence:
+            year_str = f" ({e.year})" if e.year else ""
+            doi_str = f" DOI: {e.doi}" if e.doi else ""
+            cite_str = f" [cited {e.citations}x]" if e.citations else ""
+            lines.append(
+                f"[{e.id}] {e.title}{year_str}{cite_str}\n"
+                f"    Source: {e.source}{doi_str}\n"
+                f"    Snippet: {e.snippet[:500]}"
+            )
+        return "\n\n".join(lines)
+
+    @staticmethod
+    def _format_hypotheses(hypotheses: list[Hypothesis]) -> str:
+        if not hypotheses:
+            return "(No hypotheses generated)"
+        lines: list[str] = []
+        for h in hypotheses:
+            iter_str = f" [Iteration {h.iteration}]" if h.iteration else ""
+            parent_str = f" [Evolved from {h.parent_id}]" if h.parent_id else ""
+            scores = (
+                f"rank={h.rank_score:.2f} | novelty={h.novelty:.2f} | "
+                f"testability={h.testability:.2f} | impact={h.impact:.2f} | risk={h.risk:.2f}"
+            )
+            critique_str = f"\n  Critique: {h.critique}" if h.critique else ""
+            refinement_str = f"\n  Refinement: {h.refinement}" if h.refinement else ""
+            evidence_str = f"\n  Evidence: {', '.join(h.evidence_ids)}" if h.evidence_ids else ""
+            lines.append(
+                f"--- {h.id}{iter_str}{parent_str} ---\n"
+                f"Scores: {scores}\n"
+                f"Statement: {h.statement}\n"
+                f"Rationale: {h.rationale}"
+                f"{critique_str}"
+                f"{refinement_str}"
+                f"{evidence_str}"
+            )
+        return "\n\n".join(lines)
 
 
 __all__ = ["ProposalAgent"]
