@@ -398,7 +398,19 @@ async def stream(
                     "Install provider deps and run `deeptutor provider login ...`."
                 )
 
-            if provider_mode != "direct" and litellm_available():
+            if use_local_fallback:
+                async for chunk in local_provider.stream(
+                    prompt=prompt,
+                    system_prompt=system_prompt,
+                    model=model,
+                    api_key=api_key,
+                    base_url=base_url,
+                    messages=messages,
+                    **extra_kwargs,
+                ):
+                    has_yielded = True
+                    yield chunk
+            elif provider_mode != "direct" and litellm_available():
                 async for chunk in litellm_stream(
                     prompt=prompt,
                     system_prompt=system_prompt,
@@ -410,18 +422,6 @@ async def stream(
                     messages=messages,
                     extra_headers=extra_headers or None,
                     reasoning_effort=reasoning_effort,
-                    **extra_kwargs,
-                ):
-                    has_yielded = True
-                    yield chunk
-            elif use_local_fallback:
-                async for chunk in local_provider.stream(
-                    prompt=prompt,
-                    system_prompt=system_prompt,
-                    model=model,
-                    api_key=api_key,
-                    base_url=base_url,
-                    messages=messages,
                     **extra_kwargs,
                 ):
                     has_yielded = True

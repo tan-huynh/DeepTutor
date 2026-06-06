@@ -422,6 +422,14 @@ class BaseAgent(ABC):
         if max_tokens:
             kwargs.update(get_token_limit_kwargs(model, max_tokens))
 
+        llm_retry_kwargs: dict[str, Any] = {}
+        if self.llm_config.get("max_retries") is not None:
+            llm_retry_kwargs["max_retries"] = int(self.llm_config.get("max_retries") or 0)
+        if self.llm_config.get("retry_delay") is not None:
+            llm_retry_kwargs["retry_delay"] = float(self.llm_config.get("retry_delay") or 0)
+        if self.llm_config.get("exponential_backoff") is not None:
+            llm_retry_kwargs["exponential_backoff"] = bool(self.llm_config.get("exponential_backoff"))
+
         # Handle response_format with capability check
         if response_format:
             try:
@@ -592,6 +600,14 @@ class BaseAgent(ABC):
             )
             messages = mm_result.messages
 
+        llm_retry_kwargs: dict[str, Any] = {}
+        if self.llm_config.get("max_retries") is not None:
+            llm_retry_kwargs["max_retries"] = int(self.llm_config.get("max_retries") or 0)
+        if self.llm_config.get("retry_delay") is not None:
+            llm_retry_kwargs["retry_delay"] = float(self.llm_config.get("retry_delay") or 0)
+        if self.llm_config.get("exponential_backoff") is not None:
+            llm_retry_kwargs["exponential_backoff"] = bool(self.llm_config.get("exponential_backoff"))
+
         # Log input
         stage_label = stage or self.agent_name
         trace_payload_base = {
@@ -630,6 +646,7 @@ class BaseAgent(ABC):
                 api_version=self.api_version,
                 binding=self.binding,
                 messages=messages,
+                **llm_retry_kwargs,
                 **kwargs,
             ):
                 full_response += chunk
