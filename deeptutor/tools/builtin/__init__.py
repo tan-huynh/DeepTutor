@@ -307,82 +307,141 @@ class ReasonTool(_PromptHintsMixin, BaseTool):
 
 
 class PaperSearchToolWrapper(_PromptHintsMixin, BaseTool):
+    """
+    Multi-source academic paper search tool.
+
+    Sources (in priority order):
+      - Semantic Scholar  — citation data, open-access PDFs, broad coverage
+      - arXiv             — preprints across CS/physics/math/bio
+      - PubMed            — biomedical literature (opt-in via sources param)
+    """
+
     def get_definition(self) -> ToolDefinition:
         return ToolDefinition(
             name="paper_search",
-            description="Search arXiv preprints by keyword and return concise metadata.",
+            description=(
+                "Search academic papers across arXiv and Semantic Scholar. "
+                "Returns title, authors, year, abstract, URL, DOI, and citation count. "
+                "Use for finding related work, evidence for hypotheses, or literature review."
+            ),
             parameters=[
-                ToolParameter(name="query", type="string", description="Search query."),
+                ToolParameter(name="query", type="string", description="Search query keywords."),
                 ToolParameter(
                     name="max_results",
                     type="integer",
-                    description="Maximum papers to return.",
+                    description="Maximum papers to return (default 5).",
                     required=False,
-                    default=3,
+                    default=5,
                 ),
                 ToolParameter(
                     name="years_limit",
                     type="integer",
-                    description="Only include preprints from the last N years.",
+                    description="Only include papers from the last N years. 0 or None = no limit.",
                     required=False,
                     default=3,
                 ),
                 ToolParameter(
                     name="sort_by",
                     type="string",
-                    description="Sort by relevance or submission date.",
+                    description="Sort order: relevance, date (newest first), or citations (most cited).",
                     required=False,
                     default="relevance",
-                    enum=["relevance", "date"],
+                    enum=["relevance", "date", "citations"],
+                ),
+                ToolParameter(
+                    name="sources",
+                    type="string",
+                    description=(
+                        "Comma-separated list of sources to search. "
+                        "Options: arxiv, semantic_scholar, pubmed. "
+                        "Default: arxiv,semantic_scholar"
+                    ),
+                    required=False,
+                    default="arxiv,semantic_scholar",
                 ),
             ],
         )
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        from deeptutor.tools.paper_search_tool import ArxivSearchTool
+        from deeptutor.tools.paper_search_tool import (
+            PaperSearchClient,
+            format_papers_as_text,
+        )
+
+        query = kwargs.get("query", "")
+        max_results = int(kwargs.get("max_results") or 5)
+        years_limit_raw = kwargs.get("years_limit", 3)
+        years_limit: int | None = int(years_limit_raw) if years_limit_raw else None
+        sort_by = str(kwargs.get("sort_by") or "relevance")
+
+        # Parse sources param
+        sources_raw = str(kwargs.get("sources") or "arxiv,semantic_scholar")
+        sources_list = [s.strip() for s in sources_raw.split(",") if s.strip()]
+        use_arxiv = "arxiv" in sources_list
+        use_s2 = "semantic_scholar" in sources_list
+        use_pubmed = "pubmed" in sources_list
+
+        client = PaperSearchClient(
+            use_arxiv=use_arxiv,
+            use_semantic_scholar=use_s2,
+            use_pubmed=use_pubmed,
+        )
 
         try:
-            papers = await ArxivSearchTool().search_papers(
-                query=kwargs.get("query", ""),
-                max_results=kwargs.get("max_results", 3),
-                years_limit=kwargs.get("years_limit", 3),
-                sort_by=kwargs.get("sort_by", "relevance"),
+            papers = await client.search(
+                query=query,
+                max_results=max_results,
+                years_limit=years_limit,
+                sort_by=sort_by,
+                sources=sources_list,
             )
-        except Exception:
+        except Exception as exc:
+            logger.warning("paper_search failed for query '%s': %s", query, exc)
             return ToolResult(
-                content="arXiv search is temporarily unavailable (rate-limited or network error). Please try again later.",
+                content=(
+                    "Academic paper search is temporarily unavailable. "
+                    "Please try again or use web_search as fallback."
+                ),
                 sources=[],
-                metadata={"provider": "arxiv", "papers": [], "error": True},
+                metadata={"papers": [], "error": str(exc), "query": query},
             )
+
         if not papers:
             return ToolResult(
-                content="No arXiv preprints found for this query.",
+                content=f"No papers found for query: {query!r}",
                 sources=[],
-                metadata={"provider": "arxiv", "papers": []},
+                metadata={"papers": [], "query": query, "sources_tried": sources_list},
             )
 
-        lines: list[str] = []
-        for paper in papers:
-            lines.append(f"**{paper['title']}** ({paper.get('year', '?')})")
-            lines.append(f"Authors: {', '.join(paper.get('authors', []))}")
-            lines.append(f"arXiv: {paper.get('arxiv_id', '')}")
-            lines.append(f"URL: {paper.get('url', '')}")
-            lines.append(f"Abstract: {paper.get('abstract', '')[:400]}")
-            lines.append("")
+        content = format_papers_as_text(papers, max_abstract=400)
+
+        source_records = []
+        for p in papers:
+            rec: dict[str, Any] = {
+                "type": "paper",
+                "provider": p.get("source", "unknown"),
+                "url": p.get("url", ""),
+                "title": p.get("title", ""),
+            }
+            if p.get("arxiv_id"):
+                rec["arxiv_id"] = p["arxiv_id"]
+            if p.get("doi"):
+                rec["doi"] = p["doi"]
+            if p.get("pmid"):
+                rec["pmid"] = p["pmid"]
+            if p.get("citations"):
+                rec["citations"] = p["citations"]
+            source_records.append(rec)
 
         return ToolResult(
-            content="\n".join(lines),
-            sources=[
-                {
-                    "type": "paper",
-                    "provider": "arxiv",
-                    "url": paper.get("url", ""),
-                    "title": paper.get("title", ""),
-                    "arxiv_id": paper.get("arxiv_id", ""),
-                }
-                for paper in papers
-            ],
-            metadata={"provider": "arxiv", "papers": papers},
+            content=content,
+            sources=source_records,
+            metadata={
+                "papers": papers,
+                "query": query,
+                "sources_used": list({p.get("source") for p in papers}),
+                "total": len(papers),
+            },
         )
 
 

@@ -223,7 +223,17 @@ class TurnRuntimeManager:
             "capability": capability,
             "config": {**validated_public_config, **runtime_only_config},
         }
-        session = await self.store.ensure_session(payload.get("session_id"))
+        # Resolve user_id: top-level field takes priority, then nested metadata dict.
+        _meta = payload.get("metadata") or {}
+        user_id = str(
+            payload.get("user_id")
+            or (isinstance(_meta, dict) and _meta.get("user_id"))
+            or ""
+        )
+        session = await self.store.ensure_session(
+            payload.get("session_id"),
+            user_id=user_id,
+        )
         await self.store.update_session_preferences(
             session["id"],
             {

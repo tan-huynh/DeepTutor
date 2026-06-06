@@ -81,6 +81,17 @@ async def unified_websocket(ws: WebSocket) -> None:
                 from deeptutor.services.session import get_turn_runtime_manager
 
                 runtime = get_turn_runtime_manager()
+                # Forward user_id from the WS message to the payload so that
+                # turn_runtime.start_turn() can namespace the session correctly.
+                _msg_meta = msg.get("metadata") or {}
+                _user_id_from_ws = str(
+                    msg.get("user_id")
+                    or (isinstance(_msg_meta, dict) and _msg_meta.get("user_id"))
+                    or ""
+                )
+                if _user_id_from_ws and "user_id" not in msg:
+                    # Inject at top-level so start_turn sees it without digging into metadata
+                    msg = {**msg, "user_id": _user_id_from_ws}
                 try:
                     _, turn = await runtime.start_turn(msg)
                 except RuntimeError as exc:

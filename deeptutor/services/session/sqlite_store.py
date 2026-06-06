@@ -92,7 +92,8 @@ class SQLiteSessionStore:
                     updated_at REAL NOT NULL,
                     compressed_summary TEXT DEFAULT '',
                     summary_up_to_msg_id INTEGER DEFAULT 0,
-                    preferences_json TEXT DEFAULT '{}'
+                    preferences_json TEXT DEFAULT '{}',
+                    user_id TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS messages (
@@ -111,6 +112,10 @@ class SQLiteSessionStore:
 
                 CREATE INDEX IF NOT EXISTS idx_sessions_updated_at
                     ON sessions(updated_at DESC);
+
+                -- Composite index for per-user session listing
+                CREATE INDEX IF NOT EXISTS idx_sessions_user_updated
+                    ON sessions(user_id, updated_at DESC);
 
                 CREATE TABLE IF NOT EXISTS turns (
                     id TEXT PRIMARY KEY,
@@ -147,10 +152,21 @@ class SQLiteSessionStore:
                     ON turn_events(turn_id, seq);
                 """
             )
+            # ── Runtime migrations (idempotent) ───────────────────────────────
             columns = {row[1] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
             if "preferences_json" not in columns:
                 conn.execute(
                     "ALTER TABLE sessions ADD COLUMN preferences_json TEXT DEFAULT '{}'"
+                )
+            if "user_id" not in columns:
+                # Backfill existing rows with empty string — they are treated as
+                # "unowned" and visible only when queried without a user_id filter.
+                conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN user_id TEXT NOT NULL DEFAULT ''"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_sessions_user_updated "
+                    "ON sessions(user_id, updated_at DESC)"
                 )
             conn.commit()
 
@@ -164,17 +180,22 @@ class SQLiteSessionStore:
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
-    def _create_session_sync(self, title: str | None = None, session_id: str | None = None) -> dict[str, Any]:
+    def _create_session_sync(
+        self,
+        title: str | None = None,
+        session_id: str | None = None,
+        user_id: str = "",
+    ) -> dict[str, Any]:
         now = time.time()
         resolved_id = session_id or f"unified_{int(now * 1000)}_{uuid.uuid4().hex[:8]}"
         resolved_title = (title or "New conversation").strip() or "New conversation"
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO sessions (id, title, created_at, updated_at, compressed_summary, summary_up_to_msg_id)
-                VALUES (?, ?, ?, ?, '', 0)
+                INSERT INTO sessions (id, title, created_at, updated_at, compressed_summary, summary_up_to_msg_id, user_id)
+                VALUES (?, ?, ?, ?, '', 0, ?)
                 """,
-                (resolved_id, resolved_title[:100], now, now),
+                (resolved_id, resolved_title[:100], now, now, user_id or ""),
             )
             conn.commit()
         return {
@@ -185,10 +206,16 @@ class SQLiteSessionStore:
             "updated_at": now,
             "compressed_summary": "",
             "summary_up_to_msg_id": 0,
+            "user_id": user_id or "",
         }
 
-    async def create_session(self, title: str | None = None, session_id: str | None = None) -> dict[str, Any]:
-        return await self._run(self._create_session_sync, title, session_id)
+    async def create_session(
+        self,
+        title: str | None = None,
+        session_id: str | None = None,
+        user_id: str = "",
+    ) -> dict[str, Any]:
+        return await self._run(self._create_session_sync, title, session_id, user_id)
 
     def _get_session_sync(self, session_id: str) -> dict[str, Any] | None:
         with self._connect() as conn:
@@ -248,12 +275,17 @@ class SQLiteSessionStore:
     async def get_session(self, session_id: str) -> dict[str, Any] | None:
         return await self._run(self._get_session_sync, session_id)
 
-    async def ensure_session(self, session_id: str | None = None) -> dict[str, Any]:
+    async def ensure_session(
+        self,
+        session_id: str | None = None,
+        user_id: str = "",
+    ) -> dict[str, Any]:
+        """Return existing session or create a new one tagged with *user_id*."""
         if session_id:
             session = await self.get_session(session_id)
             if session is not None:
                 return session
-        return await self.create_session()
+        return await self.create_session(user_id=user_id)
 
     @staticmethod
     def _serialize_turn(row: sqlite3.Row) -> dict[str, Any]:
@@ -608,10 +640,19 @@ class SQLiteSessionStore:
     async def get_messages_for_context(self, session_id: str) -> list[dict[str, Any]]:
         return await self._run(self._get_messages_for_context_sync, session_id)
 
-    def _list_sessions_sync(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
+    def _list_sessions_sync(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        user_id: str = "",
+    ) -> list[dict[str, Any]]:
+        # When user_id is given, return only that user's sessions.
+        # When empty, return all sessions (backward compat for single-user setups).
+        user_filter = "WHERE s.user_id = ?" if user_id else ""
+        params: tuple = (user_id, limit, offset) if user_id else (limit, offset)
         with self._connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT
                     s.id,
                     s.title,
@@ -620,6 +661,7 @@ class SQLiteSessionStore:
                     s.compressed_summary,
                     s.summary_up_to_msg_id,
                     s.preferences_json,
+                    s.user_id,
                     COUNT(m.id) AS message_count,
                     COALESCE(
                         (
@@ -664,11 +706,12 @@ class SQLiteSessionStore:
                     ) AS last_message
                 FROM sessions s
                 LEFT JOIN messages m ON m.session_id = s.id
+                {user_filter}
                 GROUP BY s.id
                 ORDER BY s.updated_at DESC
                 LIMIT ? OFFSET ?
                 """,
-                (limit, offset),
+                params,
             ).fetchall()
         sessions = []
         for row in rows:
@@ -678,8 +721,14 @@ class SQLiteSessionStore:
             sessions.append(payload)
         return sessions
 
-    async def list_sessions(self, limit: int = 50, offset: int = 0) -> list[dict[str, Any]]:
-        return await self._run(self._list_sessions_sync, limit, offset)
+    async def list_sessions(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        user_id: str = "",
+    ) -> list[dict[str, Any]]:
+        """List sessions, optionally scoped to *user_id*."""
+        return await self._run(self._list_sessions_sync, limit, offset, user_id)
 
     def _update_summary_sync(self, session_id: str, summary: str, up_to_msg_id: int) -> bool:
         with self._connect() as conn:
