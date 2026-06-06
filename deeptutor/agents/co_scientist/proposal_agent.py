@@ -84,6 +84,7 @@ class ProposalAgent(BaseAgent):
             user_prompt=user_prompt,
             system_prompt=system_prompt,
             stage="draft_proposal",
+            max_tokens=16000,  # Proposals are long — override to prevent truncation
         ):
             chunks.append(chunk)
             if progress_cb:
